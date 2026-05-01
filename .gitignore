@@ -150,6 +150,7 @@ activemq-data/
 # Environments
 .env
 .envrc
+tradingagents.local.yaml
 .venv
 env/
 venv/
@@ -217,3 +218,6 @@ __marimo__/
 
 # Cache
 **/data_cache/
+.tradingagents/
+reports/
+.DS_Store

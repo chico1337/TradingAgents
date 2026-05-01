@@ -100,6 +100,23 @@ MODEL_OPTIONS: ProviderModeOptions = {
         ],
     },
     # OpenRouter: fetched dynamically. Azure: any deployed model name.
+    "litellm": {
+        "quick": [
+            ("DeepSeek V4 Flash - Fast reasoning via LiteLLM", "deepseek-v4-flash"),
+            ("Vertex Gemini 3 Flash - Fast research via LiteLLM", "vertex-gemini-3-flash-preview"),
+            ("Vertex Gemini 3.1 Flash Lite - Cheapest via LiteLLM", "vertex-gemini-3.1-flash-lite-preview"),
+            ("NVIDIA Qwen 3.5 397B - Multimodal agentic via LiteLLM", "nvidia-qwen3.5-397b-a17b"),
+            ("Custom model ID", "custom"),
+        ],
+        "deep": [
+            ("DeepSeek V4 Pro - Strong reasoning via LiteLLM", "deepseek-v4-pro"),
+            ("Vertex Gemini 3.1 Pro - Reasoning-first via LiteLLM", "vertex-gemini-3.1-pro-preview"),
+            ("NVIDIA Qwen 3.5 397B - Multimodal agentic via LiteLLM", "nvidia-qwen3.5-397b-a17b"),
+            ("NVIDIA Qwen3 Coder 480B - Agentic coding via LiteLLM", "nvidia-qwen3-coder-480b-a35b-instruct"),
+            ("DeepSeek V4 Flash - Fast reasoning via LiteLLM", "deepseek-v4-flash"),
+            ("Custom model ID", "custom"),
+        ],
+    },
     "ollama": {
         "quick": [
             ("Qwen3:latest (8B, local)", "qwen3:latest"),

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from tradingagents.agents.schemas import ResearchPlan, render_research_plan
-from tradingagents.agents.utils.agent_utils import build_instrument_context
+from tradingagents.agents.utils.agent_utils import (
+    build_instrument_context,
+    get_trading_horizon_instruction,
+)
 from tradingagents.agents.utils.structured import (
     bind_structured,
     invoke_structured_or_freetext,
@@ -23,6 +26,8 @@ def create_research_manager(llm):
 
 {instrument_context}
 
+{get_trading_horizon_instruction()}
+
 ---
 
 **Rating Scale** (use exactly one):
@@ -32,7 +37,7 @@ def create_research_manager(llm):
 - **Underweight**: Cautious view; recommend trimming exposure
 - **Sell**: Strong conviction in the bear thesis; recommend exiting or avoiding the position
 
-Commit to a clear stance whenever the debate's strongest arguments warrant one; reserve Hold for situations where the evidence on both sides is genuinely balanced.
+Commit to clear horizon-aware stances whenever the debate's strongest arguments warrant them; reserve Hold for situations where the evidence on both sides is genuinely balanced. Make the strategic actions explicitly address both the short-term and mid-term horizon.
 
 ---
 

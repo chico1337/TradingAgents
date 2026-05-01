@@ -35,6 +35,20 @@ DEFAULT_CONFIG = {
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
+    # Recommendation horizon settings. The final markdown keeps a leading
+    # Rating field for backward compatibility, using the configured primary
+    # horizon as the machine-readable signal.
+    "short_term_horizon": "2-10 trading days",
+    "mid_term_horizon": "1-3 months",
+    "primary_recommendation_horizon": "short_term",
+    # Optional automation defaults used by the CLI when a local YAML config
+    # provides them. None preserves interactive prompts.
+    "selected_analysts": None,
+    "research_depth": None,
+    "auto_save_report": None,
+    "auto_display_report": None,
+    # CLI run default. Use "today" to resolve to the current local date at run time.
+    "analysis_date": "today",
     # Data vendor configuration
     # Category-level configuration (default for all tools in category)
     "data_vendors": {

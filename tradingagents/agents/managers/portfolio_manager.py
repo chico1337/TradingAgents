@@ -14,6 +14,8 @@ from tradingagents.agents.schemas import PortfolioDecision, render_pm_decision
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_language_instruction,
+    get_trading_horizon_config,
+    get_trading_horizon_instruction,
 )
 from tradingagents.agents.utils.structured import (
     bind_structured,
@@ -33,6 +35,7 @@ def create_portfolio_manager(llm):
         trader_plan = state["trader_investment_plan"]
 
         past_context = state.get("past_context", "")
+        horizon_config = get_trading_horizon_config()
         lessons_line = (
             f"- Lessons from prior decisions and outcomes:\n{past_context}\n"
             if past_context
@@ -43,9 +46,11 @@ def create_portfolio_manager(llm):
 
 {instrument_context}
 
+{get_trading_horizon_instruction()}
+
 ---
 
-**Rating Scale** (use exactly one):
+**Rating Scale** (use exactly one for each horizon):
 - **Buy**: Strong conviction to enter or add to position
 - **Overweight**: Favorable outlook, gradually increase exposure
 - **Hold**: Maintain current position, no action needed
@@ -61,13 +66,16 @@ def create_portfolio_manager(llm):
 
 ---
 
-Be decisive and ground every conclusion in specific evidence from the analysts.{get_language_instruction()}"""
+Be decisive and ground every conclusion in specific evidence from the analysts. Produce separate short-term and mid-term recommendations with their own rating, thesis, action plan, and time horizon.{get_language_instruction()}"""
 
         final_trade_decision = invoke_structured_or_freetext(
             structured_llm,
             llm,
             prompt,
-            render_pm_decision,
+            lambda decision: render_pm_decision(
+                decision,
+                horizon_config["primary_recommendation_horizon"],
+            ),
             "Portfolio Manager",
         )
 

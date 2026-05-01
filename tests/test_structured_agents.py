@@ -13,10 +13,12 @@ import pytest
 
 from tradingagents.agents.managers.research_manager import create_research_manager
 from tradingagents.agents.schemas import (
+    PortfolioDecision,
     PortfolioRating,
     ResearchPlan,
     TraderAction,
     TraderProposal,
+    render_pm_decision,
     render_research_plan,
     render_trader_proposal,
 )
@@ -87,6 +89,51 @@ class TestRenderResearchPlan:
             assert f"**Recommendation**: {rating.value}" in md
 
 
+@pytest.mark.unit
+class TestRenderPortfolioDecision:
+    def test_renders_short_and_mid_term_recommendations(self):
+        decision = PortfolioDecision(
+            short_term_rating=PortfolioRating.HOLD,
+            short_term_thesis="Short-term momentum is extended.",
+            short_term_action_plan="Wait for a pullback; keep risk tight.",
+            short_term_time_horizon="2-10 trading days",
+            mid_term_rating=PortfolioRating.BUY,
+            mid_term_thesis="Mid-term fundamentals remain strong.",
+            mid_term_action_plan="Accumulate on weakness.",
+            mid_term_time_horizon="1-3 months",
+        )
+        md = render_pm_decision(decision)
+        assert md.startswith("**Rating**: Hold")
+        assert "**Primary Horizon**: Short-Term" in md
+        assert "## Short-Term Recommendation" in md
+        assert "## Mid-Term Recommendation" in md
+        assert "**Rating**: Buy" in md
+        assert "**Time Horizon**: 2-10 trading days" in md
+        assert "**Time Horizon**: 1-3 months" in md
+
+    def test_can_render_mid_term_as_primary_signal(self):
+        decision = PortfolioDecision(
+            short_term_rating=PortfolioRating.HOLD,
+            short_term_thesis="Short-term setup is balanced.",
+            short_term_action_plan="Hold tactically.",
+            short_term_time_horizon="2-10 trading days",
+            mid_term_rating=PortfolioRating.OVERWEIGHT,
+            mid_term_thesis="Mid-term setup is constructive.",
+            mid_term_action_plan="Build gradually.",
+            mid_term_time_horizon="1-3 months",
+        )
+        md = render_pm_decision(decision, primary_horizon="mid_term")
+        assert md.startswith("**Rating**: Overweight")
+        assert "**Primary Horizon**: Mid-Term" in md
+
+    def test_schema_no_longer_primes_three_to_six_months(self):
+        descriptions = " ".join(
+            field.description or ""
+            for field in PortfolioDecision.model_fields.values()
+        )
+        assert "3-6 months" not in descriptions
+
+
 # ---------------------------------------------------------------------------
 # Trader agent: structured happy path + fallback
 # ---------------------------------------------------------------------------
@@ -146,6 +193,15 @@ class TestTraderAgent:
         # The investment plan is in the user message of the captured prompt.
         prompt = captured["prompt"]
         assert any("Proposed Investment Plan" in m["content"] for m in prompt)
+
+    def test_prompt_includes_horizon_instruction(self):
+        captured = {}
+        llm = _structured_trader_llm(captured)
+        trader = create_trader(llm)
+        trader(_make_trader_state())
+        prompt_text = "\n".join(m["content"] for m in captured["prompt"])
+        assert "Short-term: 2-10 trading days" in prompt_text
+        assert "Mid-term: 1-3 months" in prompt_text
 
     def test_falls_back_to_freetext_when_structured_unavailable(self):
         plain_response = (
@@ -221,6 +277,15 @@ class TestResearchManagerAgent:
         prompt = captured["prompt"]
         for tier in ("Buy", "Overweight", "Hold", "Underweight", "Sell"):
             assert f"**{tier}**" in prompt, f"missing {tier} in prompt"
+
+    def test_prompt_includes_horizon_instruction(self):
+        captured = {}
+        llm = _structured_rm_llm(captured)
+        rm = create_research_manager(llm)
+        rm(_make_rm_state())
+        prompt = captured["prompt"]
+        assert "Short-term: 2-10 trading days" in prompt
+        assert "Mid-term: 1-3 months" in prompt
 
     def test_falls_back_to_freetext_when_structured_unavailable(self):
         plain_response = "**Recommendation**: Sell\n\n**Rationale**: ...\n\n**Strategic Actions**: ..."

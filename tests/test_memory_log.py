@@ -89,9 +89,14 @@ def _structured_pm_llm(captured: dict, decision: PortfolioDecision | None = None
     """
     if decision is None:
         decision = PortfolioDecision(
-            rating=PortfolioRating.HOLD,
-            executive_summary="Hold the position; await catalyst.",
-            investment_thesis="Balanced view; neither side carried the debate.",
+            short_term_rating=PortfolioRating.HOLD,
+            short_term_thesis="Short-term setup is balanced.",
+            short_term_action_plan="Hold the position; await catalyst.",
+            short_term_time_horizon="2-10 trading days",
+            mid_term_rating=PortfolioRating.HOLD,
+            mid_term_thesis="Mid-term thesis is balanced.",
+            mid_term_action_plan="Maintain exposure until fundamentals improve.",
+            mid_term_time_horizon="1-3 months",
         )
     structured = MagicMock()
     structured.invoke.side_effect = lambda prompt: (
@@ -607,27 +612,40 @@ class TestPortfolioManagerInjection:
         pm_node(state)
         assert "Lessons from prior decisions" not in captured["prompt"]
 
+    def test_pm_prompt_includes_short_and_mid_term_horizons(self):
+        captured = {}
+        llm = _structured_pm_llm(captured)
+        pm_node = create_portfolio_manager(llm)
+        pm_node(_make_pm_state())
+        assert "Short-term: 2-10 trading days" in captured["prompt"]
+        assert "Mid-term: 1-3 months" in captured["prompt"]
+        assert "3-6 months" not in captured["prompt"]
+
     def test_pm_returns_rendered_markdown_with_rating(self):
         """The structured PortfolioDecision is rendered to markdown that
         downstream consumers (memory log, signal processor, CLI display)
         can parse without any extra LLM call."""
         captured = {}
         decision = PortfolioDecision(
-            rating=PortfolioRating.OVERWEIGHT,
-            executive_summary="Build position gradually over the next two weeks.",
-            investment_thesis="AI capex cycle remains intact; institutional flows constructive.",
-            price_target=215.0,
-            time_horizon="3-6 months",
+            short_term_rating=PortfolioRating.HOLD,
+            short_term_thesis="Technicals are extended over the next two weeks.",
+            short_term_action_plan="Wait for a pullback before adding.",
+            short_term_time_horizon="2-10 trading days",
+            mid_term_rating=PortfolioRating.OVERWEIGHT,
+            mid_term_thesis="AI capex cycle remains intact; institutional flows constructive.",
+            mid_term_action_plan="Build position gradually on pullbacks.",
+            mid_term_time_horizon="1-3 months",
         )
         llm = _structured_pm_llm(captured, decision)
         pm_node = create_portfolio_manager(llm)
         result = pm_node(_make_pm_state())
         md = result["final_trade_decision"]
-        assert "**Rating**: Overweight" in md
-        assert "**Executive Summary**: Build position gradually" in md
-        assert "**Investment Thesis**: AI capex cycle" in md
-        assert "**Price Target**: 215.0" in md
-        assert "**Time Horizon**: 3-6 months" in md
+        assert "**Rating**: Hold" in md
+        assert "## Short-Term Recommendation" in md
+        assert "## Mid-Term Recommendation" in md
+        assert "**Time Horizon**: 2-10 trading days" in md
+        assert "**Time Horizon**: 1-3 months" in md
+        assert "AI capex cycle" in md
 
     def test_pm_falls_back_to_freetext_when_structured_unavailable(self):
         """If a provider does not support with_structured_output, the agent

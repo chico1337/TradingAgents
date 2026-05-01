@@ -34,6 +34,39 @@ def get_language_instruction() -> str:
     return f" Write your entire response in {lang}."
 
 
+def get_trading_horizon_config() -> dict[str, str]:
+    """Return configured short/mid-term recommendation horizons."""
+    from tradingagents.dataflows.config import get_config
+
+    config = get_config()
+    primary = config.get("primary_recommendation_horizon", "short_term")
+    if primary not in {"short_term", "mid_term"}:
+        primary = "short_term"
+    return {
+        "short_term_horizon": config.get("short_term_horizon", "2-10 trading days"),
+        "mid_term_horizon": config.get("mid_term_horizon", "1-3 months"),
+        "primary_recommendation_horizon": primary,
+    }
+
+
+def get_trading_horizon_instruction() -> str:
+    """Return prompt text that keeps all decision agents horizon-aware."""
+    horizons = get_trading_horizon_config()
+    primary_label = (
+        "short-term"
+        if horizons["primary_recommendation_horizon"] == "short_term"
+        else "mid-term"
+    )
+    return (
+        "Evaluate recommendations separately for two horizons:\n"
+        f"- Short-term: {horizons['short_term_horizon']}\n"
+        f"- Mid-term: {horizons['mid_term_horizon']}\n"
+        f"The canonical machine-readable signal is the {primary_label} recommendation. "
+        "Allow the short-term and mid-term ratings to differ when technical setup, "
+        "fundamentals, or risk profile diverge across horizons."
+    )
+
+
 def build_instrument_context(ticker: str) -> str:
     """Describe the exact instrument so agents preserve exchange-qualified tickers."""
     return (

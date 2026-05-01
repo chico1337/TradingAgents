@@ -1,4 +1,5 @@
 from typing import Optional
+import copy
 import datetime
 import typer
 from pathlib import Path
@@ -26,6 +27,7 @@ from rich.rule import Rule
 
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.config_loader import load_config
 from cli.models import AnalystType
 from cli.utils import *
 from cli.announcements import fetch_announcements, display_announcements
@@ -38,6 +40,89 @@ app = typer.Typer(
     help="TradingAgents CLI: Multi-Agents LLM Financial Trading Framework",
     add_completion=True,  # Enable shell completion
 )
+
+PROVIDER_BACKEND_URLS = {
+    "openai": "https://api.openai.com/v1",
+    "google": None,
+    "anthropic": "https://api.anthropic.com/",
+    "xai": "https://api.x.ai/v1",
+    "deepseek": "https://api.deepseek.com",
+    "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "glm": "https://open.bigmodel.cn/api/paas/v4/",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "litellm": "http://localhost:4000/v1",
+    "azure": None,
+    "ollama": "http://localhost:11434/v1",
+}
+
+
+def parse_analysts_option(analysts: str) -> list[AnalystType]:
+    """Parse a comma-separated analyst list from the CLI."""
+    aliases = {
+        "market": AnalystType.MARKET,
+        "social": AnalystType.SOCIAL,
+        "sentiment": AnalystType.SOCIAL,
+        "news": AnalystType.NEWS,
+        "fundamentals": AnalystType.FUNDAMENTALS,
+        "fundamental": AnalystType.FUNDAMENTALS,
+        "all": None,
+    }
+    parsed: list[AnalystType] = []
+    for raw_item in analysts.split(","):
+        item = raw_item.strip().lower()
+        if not item:
+            continue
+        if item not in aliases:
+            valid = "market, social, news, fundamentals, all"
+            raise typer.BadParameter(f"Unknown analyst '{item}'. Valid values: {valid}")
+        if item == "all":
+            return [
+                AnalystType.MARKET,
+                AnalystType.SOCIAL,
+                AnalystType.NEWS,
+                AnalystType.FUNDAMENTALS,
+            ]
+        analyst = aliases[item]
+        if analyst not in parsed:
+            parsed.append(analyst)
+
+    if not parsed:
+        raise typer.BadParameter("At least one analyst is required.")
+    return parsed
+
+
+def validate_cli_date(date_str: str) -> str:
+    """Validate a CLI date argument in YYYY-MM-DD format."""
+    if date_str.strip().lower() == "today":
+        return datetime.datetime.now().strftime("%Y-%m-%d")
+
+    try:
+        analysis_date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError as exc:
+        raise typer.BadParameter("Date must be in YYYY-MM-DD format.") from exc
+
+    if analysis_date.date() > datetime.datetime.now().date():
+        raise typer.BadParameter("Analysis date cannot be in the future.")
+    return date_str
+
+
+def validate_primary_horizon(primary_horizon: str) -> str:
+    """Validate the configured primary recommendation horizon."""
+    value = primary_horizon.strip().lower()
+    if value not in {"short_term", "mid_term"}:
+        raise typer.BadParameter("Primary horizon must be 'short_term' or 'mid_term'.")
+    return value
+
+
+def format_analysts_option(analysts) -> Optional[str]:
+    """Normalize analyst config into the CLI parser's comma-separated format."""
+    if analysts is None:
+        return None
+    if isinstance(analysts, str):
+        return analysts
+    if isinstance(analysts, (list, tuple)):
+        return ",".join(str(item) for item in analysts)
+    raise typer.BadParameter("Analysts must be a comma-separated string or list.")
 
 
 # Create a deque to store recent messages with a maximum length
@@ -460,8 +545,26 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     layout["footer"].update(Panel(stats_table, border_style="grey50"))
 
 
-def get_user_selections():
+def get_user_selections(
+    base_config: Optional[dict] = None,
+    ticker: Optional[str] = None,
+    analysis_date: Optional[str] = None,
+    output_language: Optional[str] = None,
+    analysts: Optional[str] = None,
+    research_depth: Optional[int] = None,
+    llm_provider: Optional[str] = None,
+    backend_url: Optional[str] = None,
+    quick_model: Optional[str] = None,
+    deep_model: Optional[str] = None,
+    google_thinking_level: Optional[str] = None,
+    openai_reasoning_effort: Optional[str] = None,
+    anthropic_effort: Optional[str] = None,
+    short_horizon: Optional[str] = None,
+    mid_horizon: Optional[str] = None,
+    primary_horizon: Optional[str] = None,
+):
     """Get all user selections before starting the analysis display."""
+    base_config = base_config or DEFAULT_CONFIG
     # Display ASCII art welcome message
     with open(Path(__file__).parent / "static" / "welcome.txt", "r", encoding="utf-8") as f:
         welcome_ascii = f.read()
@@ -499,79 +602,132 @@ def get_user_selections():
             box_content += f"\n[dim]Default: {default}[/dim]"
         return Panel(box_content, border_style="blue", padding=(1, 2))
 
-    # Step 1: Ticker symbol
-    console.print(
-        create_question_box(
-            "Step 1: Ticker Symbol",
-            "Enter the exact ticker symbol to analyze, including exchange suffix when needed (examples: SPY, CNC.TO, 7203.T, 0700.HK)",
-            "SPY",
+    if ticker:
+        selected_ticker = normalize_ticker_symbol(ticker)
+    else:
+        # Step 1: Ticker symbol
+        console.print(
+            create_question_box(
+                "Step 1: Ticker Symbol",
+                "Enter the exact ticker symbol to analyze, including exchange suffix when needed (examples: SPY, CNC.TO, 7203.T, 0700.HK)",
+                "SPY",
+            )
         )
-    )
-    selected_ticker = get_ticker()
+        selected_ticker = get_ticker()
 
-    # Step 2: Analysis date
-    default_date = datetime.datetime.now().strftime("%Y-%m-%d")
-    console.print(
-        create_question_box(
-            "Step 2: Analysis Date",
-            "Enter the analysis date (YYYY-MM-DD)",
-            default_date,
-        )
-    )
-    analysis_date = get_analysis_date()
+    if analysis_date is None:
+        analysis_date = base_config.get("analysis_date")
 
-    # Step 3: Output language
-    console.print(
-        create_question_box(
-            "Step 3: Output Language",
-            "Select the language for analyst reports and final decision"
+    if analysis_date:
+        analysis_date = validate_cli_date(analysis_date)
+    else:
+        # Step 2: Analysis date
+        default_date = datetime.datetime.now().strftime("%Y-%m-%d")
+        console.print(
+            create_question_box(
+                "Step 2: Analysis Date",
+                "Enter the analysis date (YYYY-MM-DD)",
+                default_date,
+            )
         )
-    )
-    output_language = ask_output_language()
+        analysis_date = get_analysis_date()
 
-    # Step 4: Select analysts
-    console.print(
-        create_question_box(
-            "Step 4: Analysts Team", "Select your LLM analyst agents for the analysis"
+    if output_language:
+        output_language = output_language.strip()
+    elif base_config.get("output_language"):
+        output_language = str(base_config["output_language"]).strip()
+    else:
+        # Step 3: Output language
+        console.print(
+            create_question_box(
+                "Step 3: Output Language",
+                "Select the language for analyst reports and final decision"
+            )
         )
-    )
-    selected_analysts = select_analysts()
+        output_language = ask_output_language()
+
+    if analysts is None:
+        analysts = format_analysts_option(base_config.get("selected_analysts"))
+
+    if analysts:
+        selected_analysts = parse_analysts_option(analysts)
+    else:
+        # Step 4: Select analysts
+        console.print(
+            create_question_box(
+                "Step 4: Analysts Team", "Select your LLM analyst agents for the analysis"
+            )
+        )
+        selected_analysts = select_analysts()
     console.print(
         f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
     )
 
-    # Step 5: Research depth
-    console.print(
-        create_question_box(
-            "Step 5: Research Depth", "Select your research depth level"
-        )
-    )
-    selected_research_depth = select_research_depth()
+    if research_depth is None:
+        research_depth = base_config.get("research_depth")
 
-    # Step 6: LLM Provider
-    console.print(
-        create_question_box(
-            "Step 6: LLM Provider", "Select your LLM provider"
+    if research_depth is not None:
+        if research_depth <= 0:
+            raise typer.BadParameter("Research depth must be a positive integer.")
+        selected_research_depth = research_depth
+    else:
+        # Step 5: Research depth
+        console.print(
+            create_question_box(
+                "Step 5: Research Depth", "Select your research depth level"
+            )
         )
-    )
-    selected_llm_provider, backend_url = select_llm_provider()
+        selected_research_depth = select_research_depth()
 
-    # Step 7: Thinking agents
-    console.print(
-        create_question_box(
-            "Step 7: Thinking Agents", "Select your thinking agents for analysis"
+    provider_was_cli_override = llm_provider is not None
+    if llm_provider is None:
+        llm_provider = base_config.get("llm_provider")
+
+    if llm_provider:
+        selected_llm_provider = llm_provider.strip().lower()
+        if selected_llm_provider not in PROVIDER_BACKEND_URLS:
+            valid = ", ".join(PROVIDER_BACKEND_URLS)
+            raise typer.BadParameter(f"Unknown provider '{selected_llm_provider}'. Valid values: {valid}")
+        if backend_url is None:
+            backend_url = (
+                PROVIDER_BACKEND_URLS[selected_llm_provider]
+                if provider_was_cli_override
+                else base_config.get("backend_url")
+            )
+    else:
+        # Step 6: LLM Provider
+        console.print(
+            create_question_box(
+                "Step 6: LLM Provider", "Select your LLM provider"
+            )
         )
-    )
-    selected_shallow_thinker = select_shallow_thinking_agent(selected_llm_provider)
-    selected_deep_thinker = select_deep_thinking_agent(selected_llm_provider)
+        selected_llm_provider, backend_url = select_llm_provider()
+
+    if quick_model is None:
+        quick_model = base_config.get("quick_think_llm")
+    if deep_model is None:
+        deep_model = base_config.get("deep_think_llm")
+
+    if quick_model and deep_model:
+        selected_shallow_thinker = quick_model.strip()
+        selected_deep_thinker = deep_model.strip()
+    else:
+        # Step 7: Thinking agents
+        console.print(
+            create_question_box(
+                "Step 7: Thinking Agents", "Select your thinking agents for analysis"
+            )
+        )
+        selected_shallow_thinker = quick_model.strip() if quick_model else select_shallow_thinking_agent(selected_llm_provider)
+        selected_deep_thinker = deep_model.strip() if deep_model else select_deep_thinking_agent(selected_llm_provider)
 
     # Step 8: Provider-specific thinking configuration
-    thinking_level = None
-    reasoning_effort = None
-    anthropic_effort = None
+    thinking_level = google_thinking_level if google_thinking_level is not None else base_config.get("google_thinking_level")
+    reasoning_effort = openai_reasoning_effort if openai_reasoning_effort is not None else base_config.get("openai_reasoning_effort")
+    anthropic_effort_value = anthropic_effort if anthropic_effort is not None else base_config.get("anthropic_effort")
 
     provider_lower = selected_llm_provider.lower()
-    if provider_lower == "google":
+    if provider_lower == "google" and thinking_level is None:
         console.print(
             create_question_box(
                 "Step 8: Thinking Mode",
@@ -579,7 +735,7 @@ def get_user_selections():
             )
         )
         thinking_level = ask_gemini_thinking_config()
-    elif provider_lower == "openai":
+    elif provider_lower == "openai" and reasoning_effort is None:
         console.print(
             create_question_box(
                 "Step 8: Reasoning Effort",
@@ -587,14 +743,14 @@ def get_user_selections():
             )
         )
         reasoning_effort = ask_openai_reasoning_effort()
-    elif provider_lower == "anthropic":
+    elif provider_lower == "anthropic" and anthropic_effort_value is None:
         console.print(
             create_question_box(
                 "Step 8: Effort Level",
                 "Configure Claude effort level"
             )
         )
-        anthropic_effort = ask_anthropic_effort()
+        anthropic_effort_value = ask_anthropic_effort()
 
     return {
         "ticker": selected_ticker,
@@ -607,8 +763,15 @@ def get_user_selections():
         "deep_thinker": selected_deep_thinker,
         "google_thinking_level": thinking_level,
         "openai_reasoning_effort": reasoning_effort,
-        "anthropic_effort": anthropic_effort,
+        "anthropic_effort": anthropic_effort_value,
         "output_language": output_language,
+        "short_term_horizon": short_horizon.strip() if short_horizon else base_config["short_term_horizon"],
+        "mid_term_horizon": mid_horizon.strip() if mid_horizon else base_config["mid_term_horizon"],
+        "primary_recommendation_horizon": (
+            validate_primary_horizon(primary_horizon)
+            if primary_horizon
+            else validate_primary_horizon(base_config["primary_recommendation_horizon"])
+        ),
     }
 
 
@@ -926,12 +1089,52 @@ def format_tool_args(args, max_length=80) -> str:
         return result[:max_length - 3] + "..."
     return result
 
-def run_analysis(checkpoint: bool = False):
+def run_analysis(
+    checkpoint: bool = False,
+    config_path: Optional[Path] = None,
+    ticker: Optional[str] = None,
+    analysis_date: Optional[str] = None,
+    output_language: Optional[str] = None,
+    analysts: Optional[str] = None,
+    research_depth: Optional[int] = None,
+    llm_provider: Optional[str] = None,
+    backend_url: Optional[str] = None,
+    quick_model: Optional[str] = None,
+    deep_model: Optional[str] = None,
+    google_thinking_level: Optional[str] = None,
+    openai_reasoning_effort: Optional[str] = None,
+    anthropic_effort: Optional[str] = None,
+    short_horizon: Optional[str] = None,
+    mid_horizon: Optional[str] = None,
+    primary_horizon: Optional[str] = None,
+    save_report: Optional[bool] = None,
+    save_path: Optional[Path] = None,
+    display_report: Optional[bool] = None,
+):
+    base_config = load_config(config_path)
+
     # First get all user selections
-    selections = get_user_selections()
+    selections = get_user_selections(
+        base_config=base_config,
+        ticker=ticker,
+        analysis_date=analysis_date,
+        output_language=output_language,
+        analysts=analysts,
+        research_depth=research_depth,
+        llm_provider=llm_provider,
+        backend_url=backend_url,
+        quick_model=quick_model,
+        deep_model=deep_model,
+        google_thinking_level=google_thinking_level,
+        openai_reasoning_effort=openai_reasoning_effort,
+        anthropic_effort=anthropic_effort,
+        short_horizon=short_horizon,
+        mid_horizon=mid_horizon,
+        primary_horizon=primary_horizon,
+    )
 
     # Create config with selected research depth
-    config = DEFAULT_CONFIG.copy()
+    config = copy.deepcopy(base_config)
     config["max_debate_rounds"] = selections["research_depth"]
     config["max_risk_discuss_rounds"] = selections["research_depth"]
     config["quick_think_llm"] = selections["shallow_thinker"]
@@ -944,6 +1147,9 @@ def run_analysis(checkpoint: bool = False):
     config["anthropic_effort"] = selections.get("anthropic_effort")
     config["output_language"] = selections.get("output_language", "English")
     config["checkpoint_enabled"] = checkpoint
+    config["short_term_horizon"] = selections["short_term_horizon"]
+    config["mid_term_horizon"] = selections["mid_term_horizon"]
+    config["primary_recommendation_horizon"] = selections["primary_recommendation_horizon"]
 
     # Create stats callback handler for tracking LLM/tool calls
     stats_handler = StatsCallbackHandler()
@@ -1174,16 +1380,25 @@ def run_analysis(checkpoint: bool = False):
     # Post-analysis prompts (outside Live context for clean interaction)
     console.print("\n[bold cyan]Analysis Complete![/bold cyan]\n")
 
-    # Prompt to save report
-    save_choice = typer.prompt("Save report?", default="Y").strip().upper()
-    if save_choice in ("Y", "YES", ""):
+    should_save_report = save_report
+    if should_save_report is None:
+        should_save_report = config.get("auto_save_report")
+    if should_save_report is None:
+        save_choice = typer.prompt("Save report?", default="Y").strip().upper()
+        should_save_report = save_choice in ("Y", "YES", "")
+
+    if should_save_report:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         default_path = Path.cwd() / "reports" / f"{selections['ticker']}_{timestamp}"
-        save_path_str = typer.prompt(
-            "Save path (press Enter for default)",
-            default=str(default_path)
-        ).strip()
-        save_path = Path(save_path_str)
+        if save_path is None:
+            if save_report is True or config.get("auto_save_report") is True:
+                save_path = default_path
+            else:
+                save_path_str = typer.prompt(
+                    "Save path (press Enter for default)",
+                    default=str(default_path)
+                ).strip()
+                save_path = Path(save_path_str)
         try:
             report_file = save_report_to_disk(final_state, selections["ticker"], save_path)
             console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
@@ -1191,14 +1406,24 @@ def run_analysis(checkpoint: bool = False):
         except Exception as e:
             console.print(f"[red]Error saving report: {e}[/red]")
 
-    # Prompt to display full report
-    display_choice = typer.prompt("\nDisplay full report on screen?", default="Y").strip().upper()
-    if display_choice in ("Y", "YES", ""):
+    should_display_report = display_report
+    if should_display_report is None:
+        should_display_report = config.get("auto_display_report")
+    if should_display_report is None:
+        display_choice = typer.prompt("\nDisplay full report on screen?", default="Y").strip().upper()
+        should_display_report = display_choice in ("Y", "YES", "")
+
+    if should_display_report:
         display_complete_report(final_state)
 
 
 @app.command()
 def analyze(
+    config_path: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        help="Path to a YAML config file. Defaults to tradingagents.local.yaml when present.",
+    ),
     checkpoint: bool = typer.Option(
         False,
         "--checkpoint",
@@ -1209,12 +1434,129 @@ def analyze(
         "--clear-checkpoints",
         help="Delete all saved checkpoints before running (force fresh start).",
     ),
+    ticker: Optional[str] = typer.Option(
+        None,
+        "--ticker",
+        "-t",
+        help="Ticker symbol to analyze, e.g. NVDA. Skips the ticker prompt.",
+    ),
+    analysis_date: Optional[str] = typer.Option(
+        None,
+        "--date",
+        "-d",
+        help="Analysis date in YYYY-MM-DD format. Skips the date prompt.",
+    ),
+    analysts: Optional[str] = typer.Option(
+        None,
+        "--analysts",
+        "-a",
+        help="Comma-separated analysts: market,social,news,fundamentals, or all.",
+    ),
+    research_depth: Optional[int] = typer.Option(
+        None,
+        "--research-depth",
+        "-r",
+        help="Research/debate rounds. Use 1 for shallow, 3 for medium, 5 for deep.",
+    ),
+    llm_provider: Optional[str] = typer.Option(
+        None,
+        "--provider",
+        "-p",
+        help="LLM provider, e.g. litellm, openai, google, anthropic, openrouter, ollama.",
+    ),
+    quick_model: Optional[str] = typer.Option(
+        None,
+        "--quick-model",
+        help="Quick-thinking model ID. For LiteLLM, e.g. pentagi-cheap.",
+    ),
+    deep_model: Optional[str] = typer.Option(
+        None,
+        "--deep-model",
+        help="Deep-thinking model ID. For LiteLLM, e.g. pentagi-research.",
+    ),
+    backend_url: Optional[str] = typer.Option(
+        None,
+        "--backend-url",
+        help="Override provider API base URL, e.g. http://localhost:4000/v1.",
+    ),
+    output_language: Optional[str] = typer.Option(
+        None,
+        "--output-language",
+        help="Output language for reports and final decision. Overrides config file.",
+    ),
+    google_thinking_level: Optional[str] = typer.Option(
+        None,
+        "--google-thinking-level",
+        help="Gemini thinking level, e.g. minimal or high.",
+    ),
+    openai_reasoning_effort: Optional[str] = typer.Option(
+        None,
+        "--openai-reasoning-effort",
+        help="OpenAI reasoning effort: low, medium, or high.",
+    ),
+    anthropic_effort: Optional[str] = typer.Option(
+        None,
+        "--anthropic-effort",
+        help="Anthropic effort: low, medium, or high.",
+    ),
+    short_horizon: Optional[str] = typer.Option(
+        None,
+        "--short-horizon",
+        help="Short-term recommendation horizon, e.g. '2-10 trading days'.",
+    ),
+    mid_horizon: Optional[str] = typer.Option(
+        None,
+        "--mid-horizon",
+        help="Mid-term recommendation horizon, e.g. '1-3 months'.",
+    ),
+    primary_horizon: Optional[str] = typer.Option(
+        None,
+        "--primary-horizon",
+        help="Canonical signal horizon: short_term or mid_term.",
+    ),
+    save_report: Optional[bool] = typer.Option(
+        None,
+        "--save-report/--no-save-report",
+        help="Save the final report without asking. Omit to prompt after analysis.",
+    ),
+    save_path: Optional[Path] = typer.Option(
+        None,
+        "--save-path",
+        help="Directory for the saved final report. Implies --save-report.",
+    ),
+    display_report: Optional[bool] = typer.Option(
+        None,
+        "--display-report/--no-display-report",
+        help="Display the full report after analysis without asking. Omit to prompt.",
+    ),
 ):
+    loaded_config = load_config(config_path)
     if clear_checkpoints:
         from tradingagents.graph.checkpointer import clear_all_checkpoints
-        n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
+        n = clear_all_checkpoints(loaded_config["data_cache_dir"])
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
-    run_analysis(checkpoint=checkpoint)
+    run_analysis(
+        checkpoint=checkpoint,
+        config_path=config_path,
+        ticker=ticker,
+        analysis_date=analysis_date,
+        output_language=output_language,
+        analysts=analysts,
+        research_depth=research_depth,
+        llm_provider=llm_provider,
+        backend_url=backend_url,
+        quick_model=quick_model,
+        deep_model=deep_model,
+        google_thinking_level=google_thinking_level,
+        openai_reasoning_effort=openai_reasoning_effort,
+        anthropic_effort=anthropic_effort,
+        short_horizon=short_horizon,
+        mid_horizon=mid_horizon,
+        primary_horizon=primary_horizon,
+        save_report=True if save_path is not None and save_report is None else save_report,
+        save_path=save_path,
+        display_report=display_report,
+    )
 
 
 if __name__ == "__main__":

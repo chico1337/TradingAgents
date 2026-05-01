@@ -47,6 +47,7 @@ _PROVIDER_CONFIG = {
     "qwen": ("https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "DASHSCOPE_API_KEY"),
     "glm": ("https://api.z.ai/api/paas/v4/", "ZHIPU_API_KEY"),
     "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
+    "litellm": ("http://localhost:4000/v1", "LITELLM_API_KEY"),
     "ollama": ("http://localhost:11434/v1", None),
 }
 
@@ -77,7 +78,8 @@ class OpenAIClient(BaseLLMClient):
 
         # Provider-specific base URL and auth
         if self.provider in _PROVIDER_CONFIG:
-            base_url, api_key_env = _PROVIDER_CONFIG[self.provider]
+            default_base_url, api_key_env = _PROVIDER_CONFIG[self.provider]
+            base_url = self.base_url or default_base_url
             llm_kwargs["base_url"] = base_url
             if api_key_env:
                 api_key = os.environ.get(api_key_env)

@@ -177,52 +177,81 @@ class PortfolioDecision(BaseModel):
     the rating-scale guidance.
     """
 
-    rating: PortfolioRating = Field(
+    short_term_rating: PortfolioRating = Field(
         description=(
-            "The final position rating. Exactly one of Buy / Overweight / Hold / "
-            "Underweight / Sell, picked based on the analysts' debate."
+            "The short-term position rating. Exactly one of Buy / Overweight / "
+            "Hold / Underweight / Sell, based on the configured short-term horizon."
         ),
     )
-    executive_summary: str = Field(
+    short_term_thesis: str = Field(
         description=(
-            "A concise action plan covering entry strategy, position sizing, "
-            "key risk levels, and time horizon. Two to four sentences."
+            "Short-term reasoning anchored in technical setup, recent news, "
+            "near-term catalysts, and immediate risk conditions. Two to four sentences."
         ),
     )
-    investment_thesis: str = Field(
+    short_term_action_plan: str = Field(
         description=(
-            "Detailed reasoning anchored in specific evidence from the analysts' "
-            "debate. If prior lessons are referenced in the prompt context, "
-            "incorporate them; otherwise rely solely on the current analysis."
+            "Concrete short-term action plan covering entry strategy, key levels, "
+            "position sizing, and risk controls."
         ),
     )
-    price_target: Optional[float] = Field(
-        default=None,
-        description="Optional target price in the instrument's quote currency.",
+    short_term_time_horizon: str = Field(
+        description="Recommended holding period matching the configured short-term horizon.",
     )
-    time_horizon: Optional[str] = Field(
-        default=None,
-        description="Optional recommended holding period, e.g. '3-6 months'.",
+    mid_term_rating: PortfolioRating = Field(
+        description=(
+            "The mid-term position rating. Exactly one of Buy / Overweight / Hold / "
+            "Underweight / Sell, based on the configured mid-term horizon."
+        ),
+    )
+    mid_term_thesis: str = Field(
+        description=(
+            "Mid-term reasoning anchored in fundamentals, trend durability, catalysts, "
+            "valuation, and broader risk conditions. Two to four sentences."
+        ),
+    )
+    mid_term_action_plan: str = Field(
+        description=(
+            "Concrete mid-term action plan covering scaling, profit-taking or add levels, "
+            "position sizing, and risk controls."
+        ),
+    )
+    mid_term_time_horizon: str = Field(
+        description="Recommended holding period matching the configured mid-term horizon.",
     )
 
 
-def render_pm_decision(decision: PortfolioDecision) -> str:
+def render_pm_decision(
+    decision: PortfolioDecision,
+    primary_horizon: str = "short_term",
+) -> str:
     """Render a PortfolioDecision back to the markdown shape the rest of the system expects.
 
-    Memory log, CLI display, and saved report files all read this markdown,
-    so the rendered output preserves the exact section headers (``**Rating**``,
-    ``**Executive Summary**``, ``**Investment Thesis**``) that downstream
-    parsers and the report writers already handle.
+    Memory log, CLI display, and saved report files all read this markdown.
+    The leading ``**Rating**`` field is preserved for downstream parsers and
+    points to the configured primary horizon.
     """
+    if primary_horizon == "mid_term":
+        primary_rating = decision.mid_term_rating
+        primary_label = "Mid-Term"
+    else:
+        primary_rating = decision.short_term_rating
+        primary_label = "Short-Term"
+
     parts = [
-        f"**Rating**: {decision.rating.value}",
+        f"**Rating**: {primary_rating.value}",
+        f"**Primary Horizon**: {primary_label}",
         "",
-        f"**Executive Summary**: {decision.executive_summary}",
+        "## Short-Term Recommendation",
+        f"**Rating**: {decision.short_term_rating.value}",
+        f"**Time Horizon**: {decision.short_term_time_horizon}",
+        f"**Thesis**: {decision.short_term_thesis}",
+        f"**Action Plan**: {decision.short_term_action_plan}",
         "",
-        f"**Investment Thesis**: {decision.investment_thesis}",
+        "## Mid-Term Recommendation",
+        f"**Rating**: {decision.mid_term_rating.value}",
+        f"**Time Horizon**: {decision.mid_term_time_horizon}",
+        f"**Thesis**: {decision.mid_term_thesis}",
+        f"**Action Plan**: {decision.mid_term_action_plan}",
     ]
-    if decision.price_target is not None:
-        parts.extend(["", f"**Price Target**: {decision.price_target}"])
-    if decision.time_horizon:
-        parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
     return "\n".join(parts)

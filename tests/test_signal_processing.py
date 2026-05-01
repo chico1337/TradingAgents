@@ -10,6 +10,11 @@ to it.
 
 import pytest
 
+from tradingagents.agents.schemas import (
+    PortfolioDecision,
+    PortfolioRating,
+    render_pm_decision,
+)
 from tradingagents.agents.utils.rating import RATINGS_5_TIER, parse_rating
 from tradingagents.graph.signal_processing import SignalProcessor
 
@@ -38,8 +43,17 @@ class TestParseRating:
         # The exact shape produced by render_pm_decision must always parse.
         text = (
             "**Rating**: Buy\n\n"
-            "**Executive Summary**: Enter at $189-192, 6% portfolio cap.\n\n"
-            "**Investment Thesis**: AI capex cycle intact; institutional flows constructive."
+            "**Primary Horizon**: Short-Term\n\n"
+            "## Short-Term Recommendation\n"
+            "**Rating**: Buy\n"
+            "**Time Horizon**: 2-10 trading days\n"
+            "**Thesis**: AI capex cycle intact.\n"
+            "**Action Plan**: Enter at $189-192, 6% portfolio cap.\n\n"
+            "## Mid-Term Recommendation\n"
+            "**Rating**: Overweight\n"
+            "**Time Horizon**: 1-3 months\n"
+            "**Thesis**: Institutional flows constructive.\n"
+            "**Action Plan**: Build gradually."
         )
         assert parse_rating(text) == "Buy"
 
@@ -71,8 +85,28 @@ class TestParseRating:
 class TestSignalProcessor:
     def test_returns_rating_from_pm_markdown(self):
         sp = SignalProcessor()
-        md = "**Rating**: Overweight\n\n**Executive Summary**: Build gradually."
+        md = (
+            "**Rating**: Overweight\n"
+            "**Primary Horizon**: Short-Term\n\n"
+            "## Short-Term Recommendation\n"
+            "**Rating**: Overweight\n"
+            "**Time Horizon**: 2-10 trading days"
+        )
         assert sp.process_signal(md) == "Overweight"
+
+    def test_short_term_rating_is_default_canonical_signal(self):
+        decision = PortfolioDecision(
+            short_term_rating=PortfolioRating.HOLD,
+            short_term_thesis="Short-term setup is stretched.",
+            short_term_action_plan="Wait for a better entry.",
+            short_term_time_horizon="2-10 trading days",
+            mid_term_rating=PortfolioRating.BUY,
+            mid_term_thesis="Mid-term fundamentals are constructive.",
+            mid_term_action_plan="Accumulate on pullbacks.",
+            mid_term_time_horizon="1-3 months",
+        )
+        sp = SignalProcessor()
+        assert sp.process_signal(render_pm_decision(decision)) == "Hold"
 
     def test_makes_no_llm_calls(self):
         """SignalProcessor must not invoke the LLM it was constructed with —
