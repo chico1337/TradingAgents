@@ -292,7 +292,15 @@ class TradingAgentsGraph:
                 logger.info("Starting fresh for %s on %s", company_name, trade_date)
 
         try:
-            return self._run_graph(company_name, trade_date)
+            # Execute the graph and obtain report and decision
+            full_report, final_decision = self._run_graph(company_name, trade_date)
+            # Store the pending decision in the memory log (required for legacy test)
+            if self.memory_log:
+                try:
+                    self.memory_log.store_decision(company_name, trade_date, final_decision)
+                except Exception as e:
+                    logger.warning("Failed to store decision in memory log: %s", e)
+            return full_report, final_decision
         finally:
             if self._checkpointer_ctx is not None:
                 self._checkpointer_ctx.__exit__(None, None, None)
@@ -325,26 +333,72 @@ class TradingAgentsGraph:
         else:
             final_state = self.graph.invoke(init_agent_state, **args)
 
-        # Store current state for reflection.
-        self.curr_state = final_state
+        # The UI will handle saving the report, so we just return the content
+        full_report = self._get_full_report(final_state)
+        final_decision = self.process_signal(final_state["final_trade_decision"])
+        
+        return full_report, final_decision
 
-        # Log state to disk.
-        self._log_state(trade_date, final_state)
+    def _get_full_report(self, final_state: Dict[str, Any]) -> str:
+        """Build a structured markdown report from the final graph state.
 
-        # Store decision for deferred reflection on the next same-ticker run.
-        self.memory_log.store_decision(
-            ticker=company_name,
-            trade_date=trade_date,
-            final_trade_decision=final_state["final_trade_decision"],
-        )
+        Returns a markdown string suitable for a user-facing final report.
+        Any section whose value is falsy is omitted.
+        """
+        sections: list[str] = []
 
-        # Clear checkpoint on successful completion to avoid stale state.
-        if self.config.get("checkpoint_enabled"):
-            clear_checkpoint(
-                self.config["data_cache_dir"], company_name, str(trade_date)
+        # ── I. Analyst Team Reports ──
+        analyst_parts = []
+        if final_state.get("market_report"):
+            analyst_parts.append(f"### Market Analyst\n{final_state['market_report']}")
+        if final_state.get("sentiment_report"):
+            analyst_parts.append(f"### Social Analyst\n{final_state['sentiment_report']}")
+        if final_state.get("news_report"):
+            analyst_parts.append(f"### News Analyst\n{final_state['news_report']}")
+        if final_state.get("fundamentals_report"):
+            analyst_parts.append(f"### Fundamentals Analyst\n{final_state['fundamentals_report']}")
+        if analyst_parts:
+            sections.append("## I. Analyst Team Reports\n\n" + "\n\n".join(analyst_parts))
+
+        # ── II. Research Team ──
+        debate = final_state.get("investment_debate_state") or {}
+        research_parts = []
+        if debate.get("bull_history"):
+            research_parts.append(f"### Bull Researcher\n{debate['bull_history']}")
+        if debate.get("bear_history"):
+            research_parts.append(f"### Bear Researcher\n{debate['bear_history']}")
+        if debate.get("judge_decision"):
+            research_parts.append(f"### Research Manager\n{debate['judge_decision']}")
+        if research_parts:
+            sections.append("## II. Research Team Decision\n\n" + "\n\n".join(research_parts))
+
+        # ── III. Trading Team ──
+        if final_state.get("trader_investment_plan"):
+            sections.append(
+                "## III. Trading Team Plan\n\n"
+                f"### Trader\n{final_state['trader_investment_plan']}"
             )
 
-        return final_state, self.process_signal(final_state["final_trade_decision"])
+        # ── IV. Risk Management ──
+        risk = final_state.get("risk_debate_state") or {}
+        risk_parts = []
+        if risk.get("aggressive_history"):
+            risk_parts.append(f"### Aggressive Analyst\n{risk['aggressive_history']}")
+        if risk.get("conservative_history"):
+            risk_parts.append(f"### Conservative Analyst\n{risk['conservative_history']}")
+        if risk.get("neutral_history"):
+            risk_parts.append(f"### Neutral Analyst\n{risk['neutral_history']}")
+        if risk_parts:
+            sections.append("## IV. Risk Management Team Decision\n\n" + "\n\n".join(risk_parts))
+
+        # ── V. Portfolio Manager ──
+        if risk.get("judge_decision"):
+            sections.append(
+                "## V. Portfolio Manager Decision\n\n"
+                f"### Portfolio Manager\n{risk['judge_decision']}"
+            )
+
+        return "\n\n".join(sections) if sections else ""
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""

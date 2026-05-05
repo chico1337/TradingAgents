@@ -32,7 +32,7 @@ class NormalizedChatOpenAI(ChatOpenAI):
         """
         if method is None:
             method = "function_calling"
-        return super().with_structured_output(schema, method=method, **kwargs)
+        return super().with_structured_output(schema, method=method, strict=False, **kwargs)
 
 # Kwargs forwarded from user config to ChatOpenAI
 _PASSTHROUGH_KWARGS = (

@@ -1,0 +1,3 @@
+[server]
+address = "localhost"
+headless = true
