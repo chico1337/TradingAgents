@@ -107,6 +107,8 @@ class TestRenderPortfolioDecision:
         assert "**Primary Horizon**: Short-Term" in md
         assert "## Short-Term Recommendation" in md
         assert "## Mid-Term Recommendation" in md
+        assert "**Setup Type**: Swing" in md
+        assert "**Setup Type**: Position" in md
         assert "**Rating**: Buy" in md
         assert "**Time Horizon**: 2-10 trading days" in md
         assert "**Time Horizon**: 1-3 months" in md

@@ -619,6 +619,8 @@ class TestPortfolioManagerInjection:
         pm_node(_make_pm_state())
         assert "Short-term: 2-10 trading days" in captured["prompt"]
         assert "Mid-term: 1-3 months" in captured["prompt"]
+        assert "seek confirmation across multiple timeframes" in captured["prompt"]
+        assert "Treat the short-term setup as a swing setup" in captured["prompt"]
         assert "3-6 months" not in captured["prompt"]
 
     def test_pm_returns_rendered_markdown_with_rating(self):
@@ -643,6 +645,8 @@ class TestPortfolioManagerInjection:
         assert "**Rating**: Hold" in md
         assert "## Short-Term Recommendation" in md
         assert "## Mid-Term Recommendation" in md
+        assert "**Setup Type**: Swing" in md
+        assert "**Setup Type**: Position" in md
         assert "**Time Horizon**: 2-10 trading days" in md
         assert "**Time Horizon**: 1-3 months" in md
         assert "AI capex cycle" in md

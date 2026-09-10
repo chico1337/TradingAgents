@@ -587,7 +587,7 @@ if not st.session_state.get("analysis_running"):
         st.info("👈 Enter a ticker and click **Run Analysis** to start, or select a past report from the sidebar.")
 
     with tab_logs:
-        log_dir = os.getenv("TRADINGAGENTS_RESULTS_DIR", ".tradingagents/logs")
+        log_dir = _cfg.get("results_dir", os.path.join(os.getcwd(), "reports"))
         log_entries = scan_logs_dir(log_dir)
         if not log_entries:
             st.info("No reports found in logs directory")
@@ -789,7 +789,7 @@ if clicked or st.session_state.pop("_trigger_run", False):
         st.success(f"Analysis Complete! Decision: **{st.session_state['final_decision']}**")
 
         # Save report to logs
-        log_dir = os.getenv("TRADINGAGENTS_RESULTS_DIR", ".tradingagents/logs")
+        log_dir = config.get("results_dir", os.path.join(os.getcwd(), "reports"))
         Path(log_dir).mkdir(parents=True, exist_ok=True)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         full_report = graph._get_full_report(final_state)

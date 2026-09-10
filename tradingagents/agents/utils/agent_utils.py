@@ -63,7 +63,11 @@ def get_trading_horizon_instruction() -> str:
         f"- Mid-term: {horizons['mid_term_horizon']}\n"
         f"The canonical machine-readable signal is the {primary_label} recommendation. "
         "Allow the short-term and mid-term ratings to differ when technical setup, "
-        "fundamentals, or risk profile diverge across horizons."
+        "fundamentals, or risk profile diverge across horizons. For every horizon, "
+        "seek confirmation across multiple timeframes before upgrading conviction, "
+        "and cite exact price levels or zones when the evidence supports them. "
+        "Treat the short-term setup as a swing setup and the mid-term setup as a "
+        "position setup when framing the recommendation."
     )
 
 

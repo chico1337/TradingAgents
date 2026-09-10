@@ -221,3 +221,4 @@ __marimo__/
 .tradingagents/
 reports/
 .DS_Store
+nohup.out

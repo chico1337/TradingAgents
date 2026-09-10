@@ -66,7 +66,7 @@ def create_portfolio_manager(llm):
 
 ---
 
-Be decisive and ground every conclusion in specific evidence from the analysts. Produce separate short-term and mid-term recommendations with their own rating, thesis, action plan, and time horizon.{get_language_instruction()}"""
+Be decisive and ground every conclusion in specific evidence from the analysts. Produce separate short-term and mid-term recommendations with their own rating, thesis, action plan, and time horizon. For the short-term recommendation, frame the setup like a swing trade; for the mid-term recommendation, frame it like a position trade. In each horizon, explain what multi-timeframe confirmation supports or blocks the setup, and include exact price levels or zones whenever the report supports them.{get_language_instruction()}"""
 
         final_trade_decision = invoke_structured_or_freetext(
             structured_llm,
